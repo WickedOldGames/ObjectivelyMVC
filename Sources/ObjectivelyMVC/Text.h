@@ -28,45 +28,44 @@
 #include <ObjectivelyMVC/Font.h>
 #include <ObjectivelyMVC/View.h>
 
-typedef struct BitmapFont BitmapFont;
-
 /**
  * @file
  * @brief Text rendered with TrueType fonts.
  */
 
 /**
- * @brief Color palette for text escape sequences (^0-^7).
+ * @brief Color palette for text escape sequences (`^0` through `^9`).
+ * @details Escapes are always interpreted, on every Text: `^N` selects `TextEscapeColors[N]`
+ * for the characters that follow, and `^^` renders a literal `^`. Embedding applications MAY
+ * customize this array at runtime, before rendering.
  *
- * Defines the colors used when rendering Text with @c colorEscapes enabled.
- * Embedding applications can customize this array at runtime before rendering.
- *
- * Default mapping:
- * - ^0 = Black
- * - ^1 = Red
- * - ^2 = Green
- * - ^3 = Yellow
- * - ^4 = Blue
- * - ^5 = Magenta
- * - ^6 = Cyan
- * - ^7 = White
- *
- * @warning Do not modify the array size (must remain exactly 8 elements).
- * @warning Modifications should be made early in initialization, before rendering text.
- *
- * Example customization:
- * @code
- * TextEscapeColors[8] = (SDL_Color) { 0xFF, 0x80, 0x00, 0xFF };  // ^8 = Orange
- * @endcode
+ * Default mapping: ^0 Black, ^1 Red, ^2 Green, ^3 Yellow, ^4 Blue, ^5 Magenta, ^6 Cyan,
+ * ^7 White, ^8 Orange, ^9 Grey.
  */
 OBJECTIVELYMVC_EXPORT SDL_Color TextEscapeColors[10];
 
 /**
- * @brief Strips color escape sequences (`^0` through `^9`) from the given text.
+ * @param text The text, or `NULL`.
+ * @return True if `text` contains a color escape (`^0` through `^9`, or `^^`).
+ */
+OBJECTIVELYMVC_EXPORT bool MVC_HasColorEscapes(const char *text);
+
+/**
+ * @brief Strips color escape sequences from the given text: `^0` through `^9` are removed, and
+ * `^^` collapses to `^`.
  * @param text The text.
  * @return A newly allocated copy of `text` without escape sequences. The caller must free it.
  */
 OBJECTIVELYMVC_EXPORT char *MVC_StripColorEscapes(const char *text);
+
+/**
+ * @brief One color run of a rendered TrueType Text: a region of its texture, in texels, and the
+ * color to draw it with.
+ */
+typedef struct {
+  SDL_Rect src;
+  SDL_Color color;
+} TextRun;
 
 typedef struct Text Text;
 typedef struct TextInterface TextInterface;
@@ -89,35 +88,18 @@ struct Text {
   TextInterface *interface[0];
 
   /**
-   * @brief The BitmapFont, or `NULL` to render with `font`.
-   * @details When set, text is drawn as one quad per glyph from the BitmapFont's atlas, and
-   * `font` is not used for rasterization or measurement; `color` and color escapes apply per
-   * vertex, for free.
-   * @remarks Do not set this property directly.
-   * @see Text::setBitmapFont(Text *, BitmapFont *)
-   */
-  BitmapFont *bitmapFont;
-
-  /**
    * @brief The text color.
    */
   SDL_Color color;
 
   /**
-   * @brief The Font.
+   * @brief The Font. A fixed-width Font carries a bitmap, and is drawn as one quad per glyph
+   * from its glyph sheet instead of being rasterized per string; `color` and color escapes then
+   * apply per vertex, for free.
    * @remarks Do not set this property directly.
    * @see Text::setFont(Text *, Font *)
    */
   Font *font;
-
-  /**
-   * @brief If true, render text with color escape sequence support (^0-^7).
-   * @remarks Enables per-character colorization via Font::renderCharactersWithColors.
-   *   Only enable for Text that uses color escape sequences, as the code path is
-   *   significantly more expensive than plain rendering.
-   * @see FontEscapeColors
-   */
-  bool colorEscapes;
 
   /**
    * @brief If true, wrap text along word boundaries to fit this Text's width.
@@ -126,16 +108,27 @@ struct Text {
 
   /**
    * @brief The cached Text::naturalSize, valid while `isValid` is set and `pixelDensity`
-   * and `colorEscapes` match the Font's pixel density and this Text's `colorEscapes` --
-   * the latter because it is a public, setter-less field that changes the measurement path.
+   * matches the Font's pixel density.
    * @private
    */
   struct {
     SDL_Size size;
     float pixelDensity;
-    bool colorEscapes;
     bool isValid;
   } naturalSizeCache;
+
+  /**
+   * @brief The color runs of `texture`, one textured quad each, when the text contains color
+   * escapes; otherwise `NULL`, and `texture` is drawn as a single quad in `color`.
+   * @protected
+   */
+  TextRun *runs;
+
+  /**
+   * @brief The number of entries in `runs`.
+   * @protected
+   */
+  size_t runCount;
 
   /**
    * @brief The text.
@@ -150,12 +143,6 @@ struct Text {
    */
   Texture *texture;
 
-  /**
-   * @brief The logical draw dimensions of the texture (surface size / pixel density).
-   * @remarks Stored when the texture is created; used for pixel-perfect rendering.
-   * @protected
-   */
-  SDL_Size textureSize;
 };
 
 /**
@@ -186,18 +173,6 @@ struct TextInterface {
    * @memberof Text
    */
   SDL_Size (*naturalSize)(const Text *self);
-
-  /**
-   * @fn void Text::setBitmapFont(Text *self, BitmapFont *bitmapFont)
-   * @brief Sets this Text's BitmapFont.
-   * @details A BitmapFont is bound to the pixel density of the Font it was baked from. On a
-   * density change the owner MUST set a new one, since Text cannot re-bake it the way it
-   * re-resolves a Font.
-   * @param self The Text.
-   * @param bitmapFont The BitmapFont, or `NULL` to render with `font`.
-   * @memberof Text
-   */
-  void (*setBitmapFont)(Text *self, BitmapFont *bitmapFont);
 
   /**
    * @fn void Text::setFont(Text *self, Font *font)

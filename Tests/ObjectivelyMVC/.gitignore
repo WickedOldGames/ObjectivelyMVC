@@ -1,9 +1,10 @@
 *.log
 *.trs
-BitmapFont
 Constraint
+Font+Bitmap
 ImageAtlas
 Selector
 Style
 Stylesheet
+Text
 View

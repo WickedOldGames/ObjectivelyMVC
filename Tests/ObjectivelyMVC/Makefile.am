@@ -6,11 +6,12 @@ DEFAULT_INCLUDES = \
 	$(top_srcdir)/Sources
 
 TESTS = \
-	BitmapFont \
+	Font+Bitmap \
 	ImageAtlas \
 	Selector \
 	Style \
 	Stylesheet \
+	Text \
 	View
 
 CFLAGS += \
